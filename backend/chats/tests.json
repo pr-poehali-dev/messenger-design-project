@@ -1,0 +1,18 @@
+{
+  "tests": [
+    {
+      "name": "Search contacts",
+      "method": "GET",
+      "queryParams": {
+        "action": "search_contacts",
+        "query": "test",
+        "user_id": "1"
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "users": []
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

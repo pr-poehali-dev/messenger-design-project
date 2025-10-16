@@ -1,102 +1,161 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import Icon from '@/components/ui/icon';
+import AuthForm from '@/components/AuthForm';
+import AddContactDialog from '@/components/AddContactDialog';
+import { useToast } from '@/hooks/use-toast';
+
+interface User {
+  id: number;
+  email: string;
+  username: string;
+  full_name: string;
+  phone: string;
+  avatar_url: string;
+  status: string;
+}
 
 interface Chat {
   id: number;
   name: string;
-  lastMessage: string;
-  time: string;
-  unread: number;
-  avatar: string;
+  last_message: string;
+  last_message_time: string;
+  unread_count: number;
+  avatar_url: string;
   online: boolean;
   type: 'personal' | 'group' | 'channel';
 }
 
 interface Message {
   id: number;
-  text: string;
-  time: string;
-  sender: 'me' | 'other';
-  avatar?: string;
+  chat_id: number;
+  sender_id: number;
+  content: string;
+  created_at: string;
+  username: string;
+  full_name: string;
+  avatar_url: string;
 }
 
-const mockChats: Chat[] = [
-  {
-    id: 1,
-    name: 'Анна Смирнова',
-    lastMessage: 'Привет! Как дела?',
-    time: '14:32',
-    unread: 3,
-    avatar: '',
-    online: true,
-    type: 'personal'
-  },
-  {
-    id: 2,
-    name: 'Команда Разработки',
-    lastMessage: 'Сегодня релиз в 18:00',
-    time: '13:15',
-    unread: 0,
-    avatar: '',
-    online: false,
-    type: 'group'
-  },
-  {
-    id: 3,
-    name: 'Новости Tech',
-    lastMessage: 'Новый iPhone представлен',
-    time: '12:00',
-    unread: 5,
-    avatar: '',
-    online: false,
-    type: 'channel'
-  },
-  {
-    id: 4,
-    name: 'Дмитрий Иванов',
-    lastMessage: 'Спасибо за помощь!',
-    time: 'Вчера',
-    unread: 0,
-    avatar: '',
-    online: false,
-    type: 'personal'
-  }
-];
-
-const mockMessages: Message[] = [
-  {
-    id: 1,
-    text: 'Привет! Как твои дела?',
-    time: '14:30',
-    sender: 'other',
-    avatar: ''
-  },
-  {
-    id: 2,
-    text: 'Отлично! Работаю над новым проектом',
-    time: '14:31',
-    sender: 'me'
-  },
-  {
-    id: 3,
-    text: 'Круто! Расскажешь подробнее?',
-    time: '14:32',
-    sender: 'other',
-    avatar: ''
-  }
-];
-
 export default function Index() {
-  const [selectedChat, setSelectedChat] = useState<Chat | null>(mockChats[0]);
-  const [messages] = useState<Message[]>(mockMessages);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string>('');
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [messageText, setMessageText] = useState('');
   const [activeSection, setActiveSection] = useState<'chats' | 'contacts' | 'settings'>('chats');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [addContactOpen, setAddContactOpen] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (currentUser) {
+      loadChats();
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (selectedChat) {
+      loadMessages(selectedChat.id);
+    }
+  }, [selectedChat]);
+
+  const loadChats = async () => {
+    if (!currentUser) return;
+
+    try {
+      const response = await fetch(
+        `https://functions.poehali.dev/2462b714-2ad9-47ac-955e-19c189d6d93d?user_id=${currentUser.id}`
+      );
+      const data = await response.json();
+      setChats(data.chats || []);
+    } catch (error) {
+      console.error('Failed to load chats:', error);
+    }
+  };
+
+  const loadMessages = async (chatId: number) => {
+    try {
+      const response = await fetch(
+        `https://functions.poehali.dev/ac845eb5-2abd-42f4-bbf0-033ca2024bf6?chat_id=${chatId}`
+      );
+      const data = await response.json();
+      setMessages(data.messages || []);
+    } catch (error) {
+      console.error('Failed to load messages:', error);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!messageText.trim() || !selectedChat || !currentUser) return;
+
+    try {
+      const response = await fetch('https://functions.poehali.dev/ac845eb5-2abd-42f4-bbf0-033ca2024bf6', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chat_id: selectedChat.id,
+          sender_id: currentUser.id,
+          content: messageText
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        const newMessage: Message = {
+          ...data.message,
+          username: currentUser.username,
+          full_name: currentUser.full_name,
+          avatar_url: currentUser.avatar_url
+        };
+        setMessages([...messages, newMessage]);
+        setMessageText('');
+        loadChats();
+      }
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось отправить сообщение',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleChatCreated = async (chatId: number) => {
+    await loadChats();
+    const newChat = chats.find(c => c.id === chatId);
+    if (newChat) {
+      setSelectedChat(newChat);
+    }
+  };
+
+  const formatTime = (timestamp: string) => {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+    if (days === 0) {
+      return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    } else if (days === 1) {
+      return 'Вчера';
+    } else {
+      return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+    }
+  };
+
+  if (!currentUser) {
+    return <AuthForm onSuccess={(user, authToken) => { setCurrentUser(user); setToken(authToken); }} />;
+  }
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -116,12 +175,14 @@ export default function Index() {
           
           <div className="flex items-center gap-3">
             <Avatar className="h-12 w-12 border-2 border-white/30">
-              <AvatarImage src="" />
-              <AvatarFallback className="bg-white/20 text-white font-semibold">МП</AvatarFallback>
+              <AvatarImage src={currentUser.avatar_url} />
+              <AvatarFallback className="bg-white/20 text-white font-semibold">
+                {currentUser.full_name ? currentUser.full_name.split(' ').map(n => n[0]).join('') : currentUser.username[0]}
+              </AvatarFallback>
             </Avatar>
             <div className="flex-1">
-              <p className="text-white font-semibold">Мой Профиль</p>
-              <p className="text-white/70 text-sm">@myprofile</p>
+              <p className="text-white font-semibold">{currentUser.full_name || currentUser.username}</p>
+              <p className="text-white/70 text-sm">@{currentUser.username}</p>
             </div>
           </div>
         </div>
@@ -170,9 +231,13 @@ export default function Index() {
         </nav>
 
         <div className="p-4 border-t border-white/20">
-          <Button variant="ghost" className="w-full justify-start text-white hover:bg-white/10">
-            <Icon name="Moon" size={20} className="mr-3" />
-            Темная тема
+          <Button 
+            variant="ghost" 
+            className="w-full justify-start text-white hover:bg-white/10"
+            onClick={() => { setCurrentUser(null); setToken(''); }}
+          >
+            <Icon name="LogOut" size={20} className="mr-3" />
+            Выход
           </Button>
         </div>
       </div>
@@ -189,7 +254,12 @@ export default function Index() {
               <Icon name="Menu" size={20} />
             </Button>
             <h2 className="text-xl font-heading font-semibold flex-1 text-center md:text-left">Сообщения</h2>
-            <Button variant="ghost" size="icon" className="gradient-chat rounded-full text-white">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="gradient-chat rounded-full text-white"
+              onClick={() => setAddContactOpen(true)}
+            >
               <Icon name="Plus" size={20} />
             </Button>
           </div>
@@ -205,43 +275,50 @@ export default function Index() {
 
         <ScrollArea className="flex-1">
           <div className="p-2">
-            {mockChats.map((chat, index) => (
-              <div
-                key={chat.id}
-                className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted animate-fade-in ${
-                  selectedChat?.id === chat.id ? 'bg-primary/10 border border-primary/20' : ''
-                }`}
-                style={{ animationDelay: `${index * 0.05}s` }}
-                onClick={() => setSelectedChat(chat)}
-              >
-                <div className="relative">
-                  <Avatar className="h-12 w-12">
-                    <AvatarImage src={chat.avatar} />
-                    <AvatarFallback className="gradient-chat text-white font-semibold">
-                      {chat.name.split(' ').map(n => n[0]).join('')}
-                    </AvatarFallback>
-                  </Avatar>
-                  {chat.online && (
-                    <div className="absolute bottom-0 right-0 w-3 h-3 bg-secondary rounded-full border-2 border-card"></div>
-                  )}
-                </div>
-                
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="font-semibold truncate">{chat.name}</p>
-                    <span className="text-xs text-muted-foreground">{chat.time}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-muted-foreground truncate">{chat.lastMessage}</p>
-                    {chat.unread > 0 && (
-                      <Badge className="ml-2 gradient-accent text-white border-0 px-2">
-                        {chat.unread}
-                      </Badge>
+            {chats.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <p>Нет чатов</p>
+                <p className="text-sm mt-2">Нажмите + чтобы добавить контакт</p>
+              </div>
+            ) : (
+              chats.map((chat, index) => (
+                <div
+                  key={chat.id}
+                  className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted animate-fade-in ${
+                    selectedChat?.id === chat.id ? 'bg-primary/10 border border-primary/20' : ''
+                  }`}
+                  style={{ animationDelay: `${index * 0.05}s` }}
+                  onClick={() => setSelectedChat(chat)}
+                >
+                  <div className="relative">
+                    <Avatar className="h-12 w-12">
+                      <AvatarImage src={chat.avatar_url} />
+                      <AvatarFallback className="gradient-chat text-white font-semibold">
+                        {chat.name ? chat.name.split(' ').map(n => n[0]).join('') : '?'}
+                      </AvatarFallback>
+                    </Avatar>
+                    {chat.online && (
+                      <div className="absolute bottom-0 right-0 w-3 h-3 bg-secondary rounded-full border-2 border-card"></div>
                     )}
                   </div>
+                  
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="font-semibold truncate">{chat.name || 'Без имени'}</p>
+                      <span className="text-xs text-muted-foreground">{formatTime(chat.last_message_time)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-muted-foreground truncate">{chat.last_message || 'Нет сообщений'}</p>
+                      {chat.unread_count > 0 && (
+                        <Badge className="ml-2 gradient-accent text-white border-0 px-2">
+                          {chat.unread_count}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </ScrollArea>
       </div>
@@ -251,14 +328,14 @@ export default function Index() {
           <>
             <div className="p-4 border-b border-border flex items-center gap-3 bg-card">
               <Avatar className="h-10 w-10">
-                <AvatarImage src={selectedChat.avatar} />
+                <AvatarImage src={selectedChat.avatar_url} />
                 <AvatarFallback className="gradient-chat text-white font-semibold">
-                  {selectedChat.name.split(' ').map(n => n[0]).join('')}
+                  {selectedChat.name ? selectedChat.name.split(' ').map(n => n[0]).join('') : '?'}
                 </AvatarFallback>
               </Avatar>
               
               <div className="flex-1">
-                <p className="font-semibold">{selectedChat.name}</p>
+                <p className="font-semibold">{selectedChat.name || 'Без имени'}</p>
                 <p className="text-sm text-muted-foreground">
                   {selectedChat.online ? 'В сети' : 'Был(а) недавно'}
                 </p>
@@ -279,37 +356,40 @@ export default function Index() {
 
             <ScrollArea className="flex-1 p-4">
               <div className="space-y-4 max-w-4xl mx-auto">
-                {messages.map((message, index) => (
-                  <div
-                    key={message.id}
-                    className={`flex ${message.sender === 'me' ? 'justify-end' : 'justify-start'} animate-scale-in`}
-                    style={{ animationDelay: `${index * 0.1}s` }}
-                  >
-                    {message.sender === 'other' && (
-                      <Avatar className="h-8 w-8 mr-2">
-                        <AvatarImage src={message.avatar} />
-                        <AvatarFallback className="gradient-chat text-white text-xs">
-                          {selectedChat.name.split(' ').map(n => n[0]).join('')}
-                        </AvatarFallback>
-                      </Avatar>
-                    )}
-                    
+                {messages.map((message, index) => {
+                  const isMe = message.sender_id === currentUser.id;
+                  return (
                     <div
-                      className={`max-w-[70%] rounded-2xl px-4 py-2 ${
-                        message.sender === 'me'
-                          ? 'gradient-purple text-white'
-                          : 'bg-card border border-border'
-                      }`}
+                      key={message.id}
+                      className={`flex ${isMe ? 'justify-end' : 'justify-start'} animate-scale-in`}
+                      style={{ animationDelay: `${index * 0.05}s` }}
                     >
-                      <p className={message.sender === 'me' ? 'text-white' : 'text-foreground'}>
-                        {message.text}
-                      </p>
-                      <p className={`text-xs mt-1 ${message.sender === 'me' ? 'text-white/70' : 'text-muted-foreground'}`}>
-                        {message.time}
-                      </p>
+                      {!isMe && (
+                        <Avatar className="h-8 w-8 mr-2">
+                          <AvatarImage src={message.avatar_url} />
+                          <AvatarFallback className="gradient-chat text-white text-xs">
+                            {message.full_name ? message.full_name.split(' ').map(n => n[0]).join('') : message.username[0]}
+                          </AvatarFallback>
+                        </Avatar>
+                      )}
+                      
+                      <div
+                        className={`max-w-[70%] rounded-2xl px-4 py-2 ${
+                          isMe
+                            ? 'gradient-purple text-white'
+                            : 'bg-card border border-border'
+                        }`}
+                      >
+                        <p className={isMe ? 'text-white' : 'text-foreground'}>
+                          {message.content}
+                        </p>
+                        <p className={`text-xs mt-1 ${isMe ? 'text-white/70' : 'text-muted-foreground'}`}>
+                          {formatTime(message.created_at)}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </ScrollArea>
 
@@ -329,12 +409,16 @@ export default function Index() {
                   className="flex-1 bg-muted border-0 focus-visible:ring-primary"
                   onKeyPress={(e) => {
                     if (e.key === 'Enter' && messageText.trim()) {
-                      setMessageText('');
+                      handleSendMessage();
                     }
                   }}
                 />
                 
-                <Button className="gradient-purple text-white hover:opacity-90 transition-opacity">
+                <Button 
+                  className="gradient-purple text-white hover:opacity-90 transition-opacity"
+                  onClick={handleSendMessage}
+                  disabled={!messageText.trim()}
+                >
                   <Icon name="Send" size={20} />
                 </Button>
               </div>
@@ -361,6 +445,13 @@ export default function Index() {
           onClick={() => setSidebarOpen(false)}
         ></div>
       )}
+
+      <AddContactDialog
+        open={addContactOpen}
+        onOpenChange={setAddContactOpen}
+        currentUserId={currentUser.id}
+        onChatCreated={handleChatCreated}
+      />
     </div>
   );
 }
