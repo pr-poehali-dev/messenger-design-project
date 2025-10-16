@@ -51,6 +51,8 @@ export default function Index() {
   const [activeSection, setActiveSection] = useState<'chats' | 'contacts' | 'settings'>('chats');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [addContactOpen, setAddContactOpen] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [lastMessageCount, setLastMessageCount] = useState(0);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -59,6 +61,10 @@ export default function Index() {
     if (savedUser && savedToken) {
       setCurrentUser(JSON.parse(savedUser));
       setToken(savedToken);
+    }
+
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
     }
   }, []);
 
@@ -98,14 +104,49 @@ export default function Index() {
         `https://functions.poehali.dev/ac845eb5-2abd-42f4-bbf0-033ca2024bf6?chat_id=${chatId}`
       );
       const data = await response.json();
-      setMessages(data.messages || []);
+      const newMessages = data.messages || [];
+      
+      if (newMessages.length > lastMessageCount && lastMessageCount > 0 && currentUser) {
+        const lastMsg = newMessages[newMessages.length - 1];
+        if (lastMsg.sender_id !== currentUser.id) {
+          showNotification(lastMsg.full_name || lastMsg.username, lastMsg.content);
+        }
+      }
+      
+      setLastMessageCount(newMessages.length);
+      setMessages(newMessages);
     } catch (error) {
       console.error('Failed to load messages:', error);
     }
   };
 
+  const showNotification = (sender: string, message: string) => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      const notification = new Notification(`${sender} написал(а):`, {
+        body: message,
+        icon: '/favicon.svg',
+        badge: '/favicon.svg',
+        tag: 'visvision-message'
+      });
+
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+    }
+
+    toast({
+      title: sender,
+      description: message,
+    });
+  };
+
   const handleSendMessage = async () => {
-    if (!messageText.trim() || !selectedChat || !currentUser) return;
+    if (!messageText.trim() || !selectedChat || !currentUser || isSending) return;
+
+    const textToSend = messageText;
+    setMessageText('');
+    setIsSending(true);
 
     try {
       const response = await fetch('https://functions.poehali.dev/ac845eb5-2abd-42f4-bbf0-033ca2024bf6', {
@@ -116,29 +157,27 @@ export default function Index() {
         body: JSON.stringify({
           chat_id: selectedChat.id,
           sender_id: currentUser.id,
-          content: messageText
+          content: textToSend
         })
       });
 
       const data = await response.json();
 
       if (data.success) {
-        const newMessage: Message = {
-          ...data.message,
-          username: currentUser.username,
-          full_name: currentUser.full_name,
-          avatar_url: currentUser.avatar_url
-        };
-        setMessages([...messages, newMessage]);
-        setMessageText('');
+        await loadMessages(selectedChat.id);
         loadChats();
+      } else {
+        setMessageText(textToSend);
       }
     } catch (error) {
+      setMessageText(textToSend);
       toast({
         title: 'Ошибка',
         description: 'Не удалось отправить сообщение',
         variant: 'destructive'
       });
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -444,9 +483,9 @@ export default function Index() {
                 <Button 
                   className="gradient-purple text-white hover:opacity-90 transition-opacity"
                   onClick={handleSendMessage}
-                  disabled={!messageText.trim()}
+                  disabled={!messageText.trim() || isSending}
                 >
-                  <Icon name="Send" size={20} />
+                  {isSending ? <Icon name="Loader2" size={20} className="animate-spin" /> : <Icon name="Send" size={20} />}
                 </Button>
               </div>
             </div>
