@@ -54,14 +54,27 @@ export default function Index() {
   const { toast } = useToast();
 
   useEffect(() => {
+    const savedUser = localStorage.getItem('visvision_user');
+    const savedToken = localStorage.getItem('visvision_token');
+    if (savedUser && savedToken) {
+      setCurrentUser(JSON.parse(savedUser));
+      setToken(savedToken);
+    }
+  }, []);
+
+  useEffect(() => {
     if (currentUser) {
       loadChats();
+      const chatsInterval = setInterval(loadChats, 5000);
+      return () => clearInterval(chatsInterval);
     }
   }, [currentUser]);
 
   useEffect(() => {
     if (selectedChat) {
       loadMessages(selectedChat.id);
+      const messagesInterval = setInterval(() => loadMessages(selectedChat.id), 2000);
+      return () => clearInterval(messagesInterval);
     }
   }, [selectedChat]);
 
@@ -153,8 +166,22 @@ export default function Index() {
     }
   };
 
+  const handleLogin = (user: User, authToken: string) => {
+    setCurrentUser(user);
+    setToken(authToken);
+    localStorage.setItem('visvision_user', JSON.stringify(user));
+    localStorage.setItem('visvision_token', authToken);
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setToken('');
+    localStorage.removeItem('visvision_user');
+    localStorage.removeItem('visvision_token');
+  };
+
   if (!currentUser) {
-    return <AuthForm onSuccess={(user, authToken) => { setCurrentUser(user); setToken(authToken); }} />;
+    return <AuthForm onSuccess={handleLogin} />;
   }
 
   return (
@@ -234,7 +261,7 @@ export default function Index() {
           <Button 
             variant="ghost" 
             className="w-full justify-start text-white hover:bg-white/10"
-            onClick={() => { setCurrentUser(null); setToken(''); }}
+            onClick={handleLogout}
           >
             <Icon name="LogOut" size={20} className="mr-3" />
             Выход
